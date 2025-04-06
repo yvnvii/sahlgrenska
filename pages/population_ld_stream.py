@@ -331,22 +331,29 @@ with st.expander("💬 Ask the AI about traits, variants, or your analysis"):
         st.markdown("### 🧠 Want a plain-English summary?")
         if st.button("Summarize My Results (with polygenic insights)"):
             summary_prompt = (
-                "Can you please summarize my results and explain them in plain English? "
+                "Can you please summarize my results and explain them in plain English? Do I have many shared traits as my pathogenic parent to the extent that you think the target disease gene that is linked to the shared phenotypes is also inherited to me?"
                 "List traits that imply that you are more likely to inherit the target phenotype,"
                 "and mention if any linked traits have a known polygenic score. "
                 "Include links or suggest looking at the PGS Catalog if relevant."
-                "You can offer gentle suggestions of habits, lifestype, or healthcare that are relevant to the risk the user has."
+
             )
+
 
             st.session_state.chat_history.append({"role": "user", "content": summary_prompt})
 
             messages = [
-                {"role": "system", "content": (
-                    "You're a friendly helper who explains genetics in plain, easy to understand English"
-                    "Help the user understand traits, variants, inheritance, and polygenic scores. "
-                    "Use Ensembl or the PGS Catalog as references."
-                )},
-                {"role": "user", "content": f"(Context)\n{context_summary}"},
+                {
+                    "role": "system",
+                    "content": (
+                        "You're a friendly helper who explains genetics in plain English. "
+                        "Help the user understand what the results mean in a simple way, including genetic traits and polygenic scores. "
+                        "Use Ensembl or the PGS Catalog for references. Do not mention parents, inheritance, or make suggestions about them."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"(Context)\n{context_summary}"
+                },
             ] + st.session_state.chat_history
 
             try:
@@ -369,7 +376,7 @@ with st.expander("💬 Ask the AI about traits, variants, or your analysis"):
     # ------------------------------
     for msg in st.session_state.chat_history:
         if msg["role"] == "user":
-            st.markdown(f"**You:** {msg['content']}")
+            continue  # Hide prompt content from chat history
         elif msg["role"] == "assistant":
             st.markdown(f"**AI:** {autolink_ensembl_terms(msg['content'])}")
 
