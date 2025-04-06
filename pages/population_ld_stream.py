@@ -197,6 +197,11 @@ if phenotype_input and population_input:
             st.success("✅ No strong inheritance pattern detected.")
         else:
             st.info("🧬 Some shared traits suggest possible inheritance.")
+
+        # Store trait similarity results so chatbot and summarizer can use them
+        st.session_state.trait_similarity = trait_comparison_results
+        st.session_state.trait_agreement_count = trait_agreement_count
+
     else:
         st.info("No phenotype-linked variants found via LD.")
 
