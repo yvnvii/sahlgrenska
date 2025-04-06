@@ -207,6 +207,20 @@ import re
 client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ------------------------------
+# Known polygenic traits for demo
+# ------------------------------
+POLYGENIC_TRAITS = {
+    "LDL cholesterol": "EFO_0004611",
+    "HDL cholesterol": "EFO_0004612",
+    "Body mass index": "EFO_0004340",
+    "Height": "EFO_0004339",
+    "Type 2 diabetes": "EFO_0001360",
+    "Alzheimer's disease": "EFO_0000249",
+    "Coronary artery disease": "EFO_0001645",
+    "Blood pressure": "EFO_0004325",
+}
+
+# ------------------------------
 # Autolink Ensembl Terms
 # ------------------------------
 def autolink_ensembl_terms(text):
@@ -226,12 +240,11 @@ def autolink_ensembl_terms(text):
     return text
 
 # ------------------------------
-# Chat State
+# Chat State Init
 # ------------------------------
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# Trait similarity state should be set earlier in your app
 trait_data_ready = (
     "linked_pheno_map" in st.session_state and
     st.session_state.linked_pheno_map and
@@ -240,33 +253,53 @@ trait_data_ready = (
 )
 
 # ------------------------------
-# Chat UI Block
+# Detect polygenic traits from linked traits
+# ------------------------------
+linked_traits = []
+if "linked_pheno_map" in st.session_state and st.session_state.linked_pheno_map:
+    linked_traits = [
+        t.lower()
+        for traits in st.session_state.linked_pheno_map.values()
+        for t in traits
+    ]
+
+pg_traits = {
+    trait: POLYGENIC_TRAITS[trait]
+    for trait in POLYGENIC_TRAITS
+    if trait.lower() in linked_traits
+}
+
+polygenic_summary = (
+    f"Traits with known polygenic scores: {list(pg_traits.keys())}\n"
+    f"You can explore them at https://www.pgscatalog.org/"
+)
+
+context_summary = f"""
+Phenotype: {phenotype_input}
+Population: {population_input}
+Linked traits via LD: {st.session_state.linked_pheno_map if 'linked_pheno_map' in st.session_state else 'N/A'}
+User-assessed trait similarity: {st.session_state.trait_similarity if 'trait_similarity' in st.session_state else 'N/A'}
+Traits likely inherited: {st.session_state.trait_agreement_count if 'trait_agreement_count' in st.session_state else '0'}
+{polygenic_summary}
+"""
+
+# ------------------------------
+# Chat UI
 # ------------------------------
 with st.expander("💬 Ask the AI about traits, variants, or your analysis"):
 
-    # Free-form question form
     with st.form("chat_form", clear_on_submit=True):
-        user_input = st.text_input("Type your question here (e.g., What is rs12345?):")
+        user_input = st.text_input("Type your question here (e.g., What is rs12345?)")
         submitted = st.form_submit_button("Send")
 
     if submitted and user_input.strip():
         st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
 
-        context_summary = f"""
-        Phenotype: {phenotype_input}
-        Population: {population_input}
-        Linked traits via LD: {st.session_state.linked_pheno_map if 'linked_pheno_map' in st.session_state else 'N/A'}
-        User-assessed trait similarity: {st.session_state.trait_similarity if 'trait_similarity' in st.session_state else 'N/A'}
-        Traits likely inherited: {st.session_state.trait_agreement_count if 'trait_agreement_count' in st.session_state else '0'}
-        """
-
         messages = [
             {"role": "system", "content": (
-                "You are a very friendly helper who explains genetic stuff in a way a 10-year-old can understand. "
-                "When someone asks about a gene, variant, or trait, explain what it means in simple words. "
-                "Also, if they analyzed their traits, explain what that might mean, but do not give medical advice. "
-                "Give fitness or healthcare advice depends on the risk of inheriting the target disease."
-                "Use Ensembl (https://www.ensembl.org) or the GWAS Catalog when needed."
+                "You're a friendly helper who explains genetics in plain, easy to understand English"
+                "Help the user understand traits, variants, inheritance, and polygenic scores. "
+                "Use Ensembl or the PGS Catalog as references."
             )},
             {"role": "user", "content": f"(Context)\n{context_summary}"},
         ] + st.session_state.chat_history
@@ -286,27 +319,59 @@ with st.expander("💬 Ask the AI about traits, variants, or your analysis"):
         except Exception as e:
             st.error(f"❌ GPT error: {e}")
 
-    # Optional: Summarize button only if results are available
+    # ------------------------------
+    # Summarize Button
+    # ------------------------------
     if trait_data_ready:
-        if st.button("🧠 Summarize My Results"):
-            st.session_state.chat_history.append({
-                "role": "user",
-                "content": (
-                    "Can you please summarize my analysis and explain it like I'm 10?"
-                    "You are a kind and simple helper who explains traits, genes, and variants like you’re talking to a 10-year-old. "
-                    "If a user found traits linked to their data, tell them how some traits are polygenic — meaning they are influenced by many genes. "
-                    "Explain what a polygenic score is, and that researchers use big studies to figure them out."
-                    "Based on user assessments of trait similarity to a pathogenic parent, you may gently point out traits of interest or suggest discussing certain inherited patterns with a genetics expert."
-                    "Consider GWAS and Ensembl as reference"
+        st.markdown("### 🧠 Want a plain-English summary?")
+        if st.button("Summarize My Results (with polygenic insights)"):
+            summary_prompt = (
+                "Can you please summarize my results and explain them in plain English? "
+                "List traits that imply that you are more likely to inherit the target phenotype,"
+                "and mention if any linked traits have a known polygenic score. "
+                "Include links or suggest looking at the PGS Catalog if relevant."
+                "You can offer gentle suggestions of habits, lifestype, or healthcare that are relevant to the risk the user has."
+            )
 
+            st.session_state.chat_history.append({"role": "user", "content": summary_prompt})
 
+            messages = [
+                {"role": "system", "content": (
+                    "You're a friendly helper who explains genetics in plain, easy to understand English"
+                    "Help the user understand traits, variants, inheritance, and polygenic scores. "
+                    "Use Ensembl or the PGS Catalog as references."
+                )},
+                {"role": "user", "content": f"(Context)\n{context_summary}"},
+            ] + st.session_state.chat_history
 
+            try:
+                with st.spinner("🧠 Summarizing..."):
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=messages,
+                        temperature=0.7,
+                        max_tokens=800,
                     )
-            })
+                    reply = response.choices[0].message.content
+                    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+            except openai.RateLimitError:
+                st.warning("⚠️ You've hit your OpenAI quota or rate limit.")
+            except Exception as e:
+                st.error(f"❌ GPT error: {e}")
 
-    # Display chat history
+    # ------------------------------
+    # Display Chat History
+    # ------------------------------
     for msg in st.session_state.chat_history:
         if msg["role"] == "user":
             st.markdown(f"**You:** {msg['content']}")
         elif msg["role"] == "assistant":
             st.markdown(f"**AI:** {autolink_ensembl_terms(msg['content'])}")
+
+    # ------------------------------
+    # Show PGS links if any
+    # ------------------------------
+    if pg_traits:
+        st.markdown("📊 **Polygenic Traits Linked to Your Results:**")
+        for trait, efo in pg_traits.items():
+            st.markdown(f"- [{trait}](https://www.pgscatalog.org/trait/{efo})")

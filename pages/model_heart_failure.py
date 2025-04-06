@@ -12,7 +12,11 @@ scaler = joblib.load("data/heart_failure_scaler.pkl")
 feature_names = [
     'Gender',
     'Age_Years',
+<<<<<<< HEAD:pages/model_heart_failure.py
     'Ever_Told_Had_Asthma',
+=======
+    "Ever_Told_Had_Asthma",
+>>>>>>> 8968519 (changes):model_heart_failure.py
     'Treated_For_Anemia_Past_3mo',
     'Doctor_Said_Overweight',
     'Ever_Had_Blood_Transfusion',
