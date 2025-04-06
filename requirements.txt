@@ -4,4 +4,7 @@ numpy
 tensorflow
 scikit-learn
 joblib
+streamlit
+openai>=1.0
+requests
 
