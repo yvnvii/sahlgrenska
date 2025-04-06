@@ -4,6 +4,8 @@ from collections import defaultdict
 
 ENSEMBL_API = "https://rest.ensembl.org"
 
+
+
 # ------------------------------
 # API Functions
 # ------------------------------
@@ -197,3 +199,114 @@ if phenotype_input and population_input:
             st.info("🧬 Some shared traits suggest possible inheritance.")
     else:
         st.info("No phenotype-linked variants found via LD.")
+
+import openai
+import re
+
+# Initialize OpenAI client
+client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+
+# ------------------------------
+# Autolink Ensembl Terms
+# ------------------------------
+def autolink_ensembl_terms(text):
+    gene_pattern = r"\b([A-Z0-9]{2,10})\b"
+    snp_pattern = r"\b(rs\d+)\b"
+
+    def gene_link(match):
+        gene = match.group(1)
+        return f"[{gene}](https://www.ensembl.org/Homo_sapiens/Gene/Summary?g={gene})"
+
+    def snp_link(match):
+        rsid = match.group(1)
+        return f"[{rsid}](https://www.ensembl.org/Homo_sapiens/Variation/Explore?v={rsid})"
+
+    text = re.sub(snp_pattern, snp_link, text)
+    text = re.sub(gene_pattern, gene_link, text)
+    return text
+
+# ------------------------------
+# Chat State
+# ------------------------------
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+# Trait similarity state should be set earlier in your app
+trait_data_ready = (
+    "linked_pheno_map" in st.session_state and
+    st.session_state.linked_pheno_map and
+    "trait_similarity" in st.session_state and
+    st.session_state.trait_similarity
+)
+
+# ------------------------------
+# Chat UI Block
+# ------------------------------
+with st.expander("💬 Ask the AI about traits, variants, or your analysis"):
+
+    # Free-form question form
+    with st.form("chat_form", clear_on_submit=True):
+        user_input = st.text_input("Type your question here (e.g., What is rs12345?):")
+        submitted = st.form_submit_button("Send")
+
+    if submitted and user_input.strip():
+        st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+
+        context_summary = f"""
+        Phenotype: {phenotype_input}
+        Population: {population_input}
+        Linked traits via LD: {st.session_state.linked_pheno_map if 'linked_pheno_map' in st.session_state else 'N/A'}
+        User-assessed trait similarity: {st.session_state.trait_similarity if 'trait_similarity' in st.session_state else 'N/A'}
+        Traits likely inherited: {st.session_state.trait_agreement_count if 'trait_agreement_count' in st.session_state else '0'}
+        """
+
+        messages = [
+            {"role": "system", "content": (
+                "You are a very friendly helper who explains genetic stuff in a way a 10-year-old can understand. "
+                "When someone asks about a gene, variant, or trait, explain what it means in simple words. "
+                "Also, if they analyzed their traits, explain what that might mean, but do not give medical advice. "
+                "Give fitness or healthcare advice depends on the risk of inheriting the target disease."
+                "Use Ensembl (https://www.ensembl.org) or the GWAS Catalog when needed."
+            )},
+            {"role": "user", "content": f"(Context)\n{context_summary}"},
+        ] + st.session_state.chat_history
+
+        try:
+            with st.spinner("Thinking..."):
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=800,
+                )
+                reply = response.choices[0].message.content
+                st.session_state.chat_history.append({"role": "assistant", "content": reply})
+        except openai.RateLimitError:
+            st.warning("⚠️ You've hit your OpenAI quota or rate limit.")
+        except Exception as e:
+            st.error(f"❌ GPT error: {e}")
+
+    # Optional: Summarize button only if results are available
+    if trait_data_ready:
+        if st.button("🧠 Summarize My Results"):
+            st.session_state.chat_history.append({
+                "role": "user",
+                "content": (
+                    "Can you please summarize my analysis and explain it like I'm 10?"
+                    "You are a kind and simple helper who explains traits, genes, and variants like you’re talking to a 10-year-old. "
+                    "If a user found traits linked to their data, tell them how some traits are polygenic — meaning they are influenced by many genes. "
+                    "Explain what a polygenic score is, and that researchers use big studies to figure them out."
+                    "Based on user assessments of trait similarity to a pathogenic parent, you may gently point out traits of interest or suggest discussing certain inherited patterns with a genetics expert."
+                    "Consider GWAS and Ensembl as reference"
+
+
+
+                    )
+            })
+
+    # Display chat history
+    for msg in st.session_state.chat_history:
+        if msg["role"] == "user":
+            st.markdown(f"**You:** {msg['content']}")
+        elif msg["role"] == "assistant":
+            st.markdown(f"**AI:** {autolink_ensembl_terms(msg['content'])}")
